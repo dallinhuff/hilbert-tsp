@@ -96,7 +96,7 @@ class TSPSolver:
             # Now build the route using the random starting point
             route.append(random.randrange(0, ncities))
 
-            while len(route) < ncities:
+            while len(route) < ncities and time.time()-start_time < time_allowance:
                 city = route[-1]
                 next_city = 0
                 low_cost = math.inf
@@ -113,7 +113,7 @@ class TSPSolver:
                 city_route.append(cities[city])
             bssf = TSPSolution(city_route)
             count += 1
-            if bssf.cost < np.inf:
+            if bssf.cost < np.inf and len(route) == ncities:
                 # Found a valid route
                 foundTour = True
         end_time = time.time()
