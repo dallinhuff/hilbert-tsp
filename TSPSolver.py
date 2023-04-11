@@ -136,7 +136,74 @@ class TSPSolver:
     '''
 
     def branchAndBound(self, time_allowance=60.0):
-        pass
+        cities = self._scenario.getCities()
+        num_cities = len(cities)
+        pruned = 0
+
+        start_time = time.time()
+
+        initial_results = self.get_fancy_solution(True)
+        if time.time() - start_time >= time_allowance:
+            return initial_results
+        bssf = initial_results['soln']
+
+        # find initial state
+        costs = np.array([
+            [cities[i].costTo(cities[j]) for j in range(num_cities)] for i in range(num_cities)
+        ])
+        initial_state = PartialPathState(costs)
+        initial_state.reduce()
+
+        # initialize queue with initial state
+        queue = [initial_state]
+        max_queue_size = 1
+        total_created = 1
+        solutions_found = 0
+
+        def prune_queue():
+            nonlocal queue, pruned
+            queue_size = len(queue)
+
+            # prune queue items with lower bounds too high
+            queue = [value for value in queue if value.lower_bound < bssf.cost]
+            pruned += queue_size - len(queue)
+            heapq.heapify(queue)
+
+        while len(queue) > 0 and time.time() - start_time < time_allowance:
+            max_queue_size = max([len(queue), max_queue_size])
+
+            # pop next item from queue
+            state = heapq.heappop(queue)
+            current_city = state.included_cities[-1]
+
+            # expand state popped from queue
+            for dest in set(range(num_cities)) - set(state.included_cities):
+                if dest == current_city:
+                    continue
+                total_created += 1
+                child_state = state.copy()
+                child_state.depth += 1
+                child_state.select_and_reduce(current_city, dest)
+                if child_state.lower_bound < bssf.cost:
+                    if len(child_state.included_cities) == num_cities:
+                        solutions_found += 1
+                        bssf = TSPSolution([cities[i] for i in child_state.included_cities])
+                        prune_queue()
+                    else:
+                        heapq.heappush(queue, child_state)
+                else:
+                    pruned += 1
+
+        prune_queue()
+        return {
+            'cost': bssf.cost,
+            'time': time.time() - start_time,
+            'count': solutions_found,
+            'soln': bssf,
+            'max': max_queue_size,
+            'total': total_created,
+            'pruned': pruned
+        }
 
     ''' <summary>
         This is the entry point for the algorithm you'll write for your group project.
