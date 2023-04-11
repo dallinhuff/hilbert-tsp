@@ -294,7 +294,7 @@ class TSPSolver:
         def map_city(c):
             return self.map_to_hilbert(n, *self.hilbert_transform(n, c._x, c._y, range_x, range_y, clockwise)), c
 
-        return [t[1] for t in sorted(map(map_city, cities))]
+        return [t[1] for t in sorted(map(map_city, cities), key=lambda x: x[0])]
 
     def hilbert_transform(self, n, x, y, range_x, range_y, clockwise=False):
         """
