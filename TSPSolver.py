@@ -2,11 +2,7 @@
 
 from which_pyqt import PYQT_VER
 
-if PYQT_VER == 'PYQT5':
-    from PyQt5.QtCore import QLineF, QPointF
-elif PYQT_VER == 'PYQT4':
-    from PyQt4.QtCore import QLineF, QPointF
-elif PYQT_VER == 'PYQT6':
+if PYQT_VER == 'PYQT6':
     from PyQt6.QtCore import QLineF, QPointF
 else:
     raise Exception('Unsupported Version of PyQt: {}'.format(PYQT_VER))
@@ -95,7 +91,7 @@ class TSPSolver:
                 city_edges.append(city.costTo(nextCity))
             edges.append(city_edges)
 
-        while not foundTour and time.time()-start_time < time_allowance:
+        while not foundTour and time.time() - start_time < time_allowance:
             route = []
             # Now build the route using the random starting point
             route.append(random.randrange(0, ncities))
@@ -150,8 +146,13 @@ class TSPSolver:
         best solution found.  You may use the other three field however you like.
         algorithm</returns>
     '''
+    def z_curve(self, time_allowance=60.0):
+        return self.get_fancy_solution(False)
 
-    def fancy(self, time_allowance=60.0):
+    def hilbert(self, time_allowance=60.0):
+        return self.get_fancy_solution(True)
+
+    def get_fancy_solution(self, hilbert=True):
         cities = self._scenario.getCities()
         start_time = time.time()
 
@@ -162,13 +163,10 @@ class TSPSolver:
         left = [city for city in cities if city._x < mean_x]
         right = [city for city in cities if city._x >= mean_x]
 
-        # TODO: this works ok if the last point in right_solution is fairly close
-        # to the first point in left_solution, but that usually isn't the case when
-        # the problem size gets bigger. We'll probably need to do some reflecting/rotating
-        # for one or more of the halves
-        left_solution = self.hilbert_tour(16, left)
-        right_solution = list(reversed(self.hilbert_tour(12, right)))
-        solution = TSPSolution(left_solution + right_solution)
+        left_sol = self.hilbert_tour(left) if hilbert else self.z_curve_tour(16, left)
+        right_sol = self.hilbert_tour(right, True) if hilbert else list(reversed(self.z_curve_tour(16, right)))
+        solution = TSPSolution(left_sol + right_sol)
+
         return {
             'cost': solution.cost,
             'time': time.time() - start_time,
@@ -179,23 +177,33 @@ class TSPSolver:
             'pruned': None
         }
 
-    def hilbert_tour(self, n, cities):
-        x_range = (min(cities, key=lambda city: city._x)._x, max(cities, key=lambda city: city._x)._x)
-        y_range = (min(cities, key=lambda city: city._y)._y, max(cities, key=lambda city: city._y)._y)
-        mapped_cities = [
-            (self.to_hilbert(n, city._x, city._y, x_range, y_range), city) for city in cities
-        ]
-        tour = sorted(mapped_cities, key=lambda entry: entry[0])
-        return list(map(lambda x: x[1], tour))
+    def get_ranges(self, cities):
+        """
+        get the minimum and maximum x & y values for a list of cities
+        """
+        range_x = (min(cities, key=lambda city: city._x)._x, max(cities, key=lambda city: city._x)._x)
+        range_y = (min(cities, key=lambda city: city._y)._y, max(cities, key=lambda city: city._y)._y)
+        return range_x, range_y
 
-    def to_hilbert(self, n, x, y, x_range=None, y_range=None):
-        # scale x and y to be in range [0, 2^n - 1]
-        if x_range is None:
-            x_range = (x, x)
-        if y_range is None:
-            y_range = (y, y)
-        x_scaled = int((x - x_range[0]) / (x_range[1] - x_range[0]) * (2 ** n - 1))
-        y_scaled = int((y - y_range[0]) / (y_range[1] - y_range[0]) * (2 ** n - 1))
+    def z_curve_tour(self, n, cities):
+        """
+        sort cities by their corresponding d-index on the z curve
+        """
+        range_x, range_y = self.get_ranges(cities)
+        return [
+            entry[1] for entry in sorted(
+                [(self.map_to_z(n, city._x, city._y, range_x, range_y), city) for city in cities],
+                key=lambda e: e[0]
+            )
+        ]
+
+    def map_to_z(self, n, x, y, range_x, range_y):
+        """
+        get the corresponding d-index for a point x,y residing in range_x and range_y
+        """
+        # scale x and y to be in range [0, 2 ** n - 1]
+        x_scaled = int((x - range_x[0]) / (range_x[1] - range_x[0]) * (2 ** n - 1))
+        y_scaled = int((y - range_y[0]) / (range_y[1] - range_y[0]) * (2 ** n - 1))
 
         # Reverse the order of the bits in the scaled coordinates
         x_binary = format(x_scaled, f'0{n}b')[::-1]
@@ -205,6 +213,60 @@ class TSPSolver:
         d_binary = ''.join([b for t in zip(x_binary, y_binary) for b in t])
 
         # Convert the binary representation of d to an integer value
-        d = int(d_binary[::-1], 2)
+        return int(d_binary[::-1], 2)
 
+    def hilbert_tour(self, cities, clockwise=False):
+        """
+        :param cities: the cities to sort
+        :param clockwise: whether to rotate the curve clockwise, if False, rotates the curve counter-clockwise
+        :return: the cities sorted by their corresponding d-index on a rotated hilbert curve
+        """
+        range_x, range_y = self.get_ranges(cities)
+        n = 2 ** 8
+
+        def map_city(c):
+            return self.map_to_hilbert(n, *self.hilbert_transform(n, c._x, c._y, range_x, range_y, clockwise)), c
+
+        return [t[1] for t in sorted(map(map_city, cities))]
+
+    def hilbert_transform(self, n, x, y, range_x, range_y, clockwise=False):
+        """
+        scale and rotate a point x,y in range_x and range_y to such that it can be
+        mapped to a d-index on a rotated order-n hilbert curve
+        """
+        scaled_x = (x - range_x[0]) / (range_x[1] - range_x[0]) * (n - 1)
+        scaled_y = (y - range_y[0]) / (range_y[1] - range_y[0]) * (n - 1)
+        translated_x = scaled_x - (n - 1) / 2
+        translated_y = scaled_y - (n - 1) / 2
+        rotated_x = (n - 1) / 2 + (-translated_y if clockwise else translated_y)
+        rotated_y = (n - 1) / 2 + (translated_x if clockwise else -translated_x)
+        return int(rotated_x), int(rotated_y)
+
+    def map_to_hilbert(self, n, x, y):
+        """
+        map a scaled & rotated point x,y to its corresponding d-index
+        """
+        rx, ry, s, d = 0, 0, 0, 0
+        s = n // 2
+        while s > 0:
+            rx = (x & s) > 0
+            ry = (y & s) > 0
+            d += s * s * ((3 * rx) ^ ry)
+            x, y = self.hilbert_rotate(n, x, y, rx, ry)
+            s //= 2
         return d
+
+    def hilbert_rotate(self, n, x, y, rx, ry):
+        """
+        determine when to change direction of the n-order curve
+        based on current x, y, rx, and ry
+        """
+        ret_x, ret_y = x, y
+        if not ry:
+            if rx:
+                ret_x = n - 1 - x
+                ret_y = n - 1 - y
+            t = ret_x
+            ret_x = ret_y
+            ret_y = t
+        return ret_x, ret_y

@@ -348,7 +348,8 @@ class Proj5GUI( QMainWindow ):
 		('Default                            ','defaultRandomTour'), \
 		('Greedy','greedy'), \
 		('Branch and Bound','branchAndBound'), \
-		('Fancy','fancy') \
+		('Hilbert Curve','hilbert'), \
+		('Z-Curve', 'z_curve') \
 	]															# whitespace hack to get longest to display correctly
 
 	def initUI( self ):
