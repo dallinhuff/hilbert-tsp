@@ -246,7 +246,7 @@ class Proj5GUI( QMainWindow ):
 		self.prunedStates.setText( '--' )
 		self.statusBar.showMessage('')
 		self.view.repaint()
-
+		print()
 
 	def displaySolution( self ) :						
 		self.view.clearEdges([(64,64,255)])				# get rid of edge labels but not point labels
@@ -288,6 +288,7 @@ class Proj5GUI( QMainWindow ):
 		if results:
 			self.statusBar.showMessage('')
 			self.numSolutions.setText( '{}'.format(results['count']) )
+			print(f"{results['time']}\t{results['cost']}\t", end="")
 			self.tourCost.setText( '{}'.format(results['cost']) )
 			self.solvedIn.setText( '{:6.6f} seconds'.format(results['time']) )
 			self._solution = results['soln']
